@@ -1,4 +1,4 @@
-name = "xy-sk"
+name = "xy-usk"
 main = "worker.js"
 compatibility_date = "2026-05-20"
 
@@ -9,13 +9,13 @@ crons = ["* * * * *"]
 # 绑定 KV 数据库
 [[kv_namespaces]]
 binding = "kv"
-id = "84e985df03234e77a85b5961152e77e0"
+id = "003f5cbb9fd54dca9cace7e9934581f1"
 
 # 绑定 D1 数据库
 [[d1_databases]]
 binding = "db"
 database_name = "db"
-database_id = "5f6f653a-f4ab-4e28-89fe-4b14d3258d0f"
+database_id = "1f2c1984-467e-4e97-9434-f2baa3e70e74"
 
 # ==========================================
 # 【新增】配置规则：允许将 .html 当作文本模块导入
