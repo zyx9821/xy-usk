@@ -1,4 +1,5 @@
 // worker.js
+import dashboardHTML from "./public/admin.html";
 // 【新增】KV与内存双重缓存架构逻辑
 let cachedNetworks = null;
 let lastNetworkCacheTime = 0;
@@ -24,7 +25,7 @@ export default {
         const url = new URL(request.url);
 
         // ==========================================
-        // 1. 系统初始化与建表 (升级到 v4)
+        // 1. 系统初始化与建表 (v1)
         // ==========================================
         const isInit = await env.kv.get("system_init_v1");
         if (!isInit) {
@@ -103,10 +104,10 @@ export default {
         const tokenMatch = cookie.match(/token=([^;]+)/);
         if (!tokenMatch || tokenMatch[1] !== await env.kv.get("admin_token")) return new Response("未授权", { status: 302, headers: { "Location": "/" } });
 
-       // ==========================================
+        // ==========================================
         // 3. API 与页面路由
         // ==========================================
-        if (url.pathname === "/dashboard") return env.assets.fetch(new Request(new URL("/admin.html", request.url)));
+        if (url.pathname === "/dashboard") return new Response(dashboardHTML, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
 
         if (url.pathname === "/api/orders") {
             if (request.method === "GET") {
