@@ -30,5 +30,5 @@ fallthrough = true
 # ==========================================
 [assets]
 binding = "assets"       # 绑定静态资源服务
-directory = "public"     # 将当前目录（包含 files 文件夹）全部上传
+directory = "public"     # 指定上传 public 文件夹
 run_worker_first = true  # 优先执行 Worker 内部的 API 路由
