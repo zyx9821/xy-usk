@@ -1,5 +1,5 @@
 // worker.js
-import dashboardHTML from "./admin.html";
+import dashboardHTML from "./public/admin.html";
 // 【新增】KV与内存双重缓存架构逻辑
 let cachedNetworks = null;
 let lastNetworkCacheTime = 0;
