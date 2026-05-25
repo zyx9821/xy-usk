@@ -9,13 +9,13 @@ crons = ["* * * * *"]
 # 绑定 KV 数据库
 [[kv_namespaces]]
 binding = "kv"
-id = "003f5cbb9fd54dca9cace7e9934581f1"
+id = "be0ab23d8293479b976071d006152067"
 
 # 绑定 D1 数据库
 [[d1_databases]]
 binding = "db"
-database_name = "xy-usk"
-database_id = "1f2c1984-467e-4e97-9434-f2baa3e70e74"
+database_name = "db"
+database_id = "5d1e9282-81a9-4d79-9091-71b4bf796ebb"
 
 # ==========================================
 # 【新增】配置规则：允许将 .html 当作文本模块导入
