@@ -27,7 +27,7 @@ export default {
         // ==========================================
         // 1. 系统初始化与建表 (升级到 v4)
         // ==========================================
-        const isInit = await env.kv.get("system_init_v5");
+        const isInit = await env.kv.get("system_init_v1");
         if (!isInit) {
             await env.db.prepare(`CREATE TABLE IF NOT EXISTS orders (
                 tx_hash TEXT, network TEXT NOT NULL, amount TEXT NOT NULL,
@@ -52,7 +52,7 @@ export default {
             );`).run();
             await env.kv.put("admin_username", "admin");
             await env.kv.put("admin_password", "123456");
-            await env.kv.put("system_init_v5", "true");
+            await env.kv.put("system_init_v1", "true");
         }
 
         // ==========================================
