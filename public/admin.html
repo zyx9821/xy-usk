@@ -581,6 +581,11 @@
                     <div class="card-header"><h3>安全鉴权设置</h3></div>
                     <div class="form-group"><label>面板账号:</label><input type="text" id="set_username"></div>
                     <div class="form-group"><label>面板密码:</label><input type="password" id="set_password"></div>
+					<div class="form-group">
+                        <label>监控系统通信密钥 (API_SECRET):</label>
+                        <input type="text" id="set_api_secret" placeholder="请设置一段复杂字符串用于与发卡网双向鉴权">
+                        <div class="form-hint" style="color: #eab308; margin-top: 8px;">⚠️ 重要：发卡网向本系统发送监控指令，以及本系统向发卡网回调支付结果，均依赖此密钥进行安全验签。请务必与发卡网后台保持一致！</div>
+                    </div>
                     <button class="btn" onclick="saveSettings()">保存基础配置</button>
                 </div>
             </div>
@@ -744,6 +749,7 @@ echo json_encode(["code" => 200, "msg" => "SUCCESS"]);
             const config = await confRes.json();
             document.getElementById('set_username').value = config.username || '';
             document.getElementById('set_password').value = config.password || '';
+			document.getElementById('set_api_secret').value = config.api_secret || '';
             // 拉取 D1 数据库中的收款地址
             await renderNetworksGrid();
             loadAddresses();
@@ -1004,7 +1010,8 @@ echo json_encode(["code" => 200, "msg" => "SUCCESS"]);
         async function saveSettings() {
             const data = {
                 username: document.getElementById('set_username').value,
-                password: document.getElementById('set_password').value
+                password: document.getElementById('set_password').value,
+                api_secret: document.getElementById('set_api_secret').value
             };
             await fetch('/api/settings', { method: 'POST', body: JSON.stringify(data) });
             alert('✅ 基础配置保存成功！'); location.reload();
