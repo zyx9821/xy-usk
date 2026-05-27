@@ -65,3 +65,11 @@ CREATE TABLE IF NOT EXISTS sys_state (
     key_name TEXT PRIMARY KEY,
     key_value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS active_watches (
+    address TEXT PRIMARY KEY,  
+    network TEXT NOT NULL,   
+    expected_amount TEXT NOT NULL, 
+    order_id TEXT NOT NULL, 
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP 
+);
