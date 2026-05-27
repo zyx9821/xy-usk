@@ -50,10 +50,10 @@ export default {
             await env.db.prepare(`CREATE TABLE IF NOT EXISTS sys_state (
                 key_name TEXT PRIMARY KEY, key_value TEXT
             );`).run();
-            // 【重构新增】自动创建 active_watches 表 (用于存储当前活跃的按需监控订单)
+            // 【修正】主键改为 order_id，支持单地址高并发多订单
             await env.db.prepare(`CREATE TABLE IF NOT EXISTS active_watches (
-                address TEXT PRIMARY KEY, network TEXT NOT NULL, expected_amount TEXT NOT NULL,
-                order_id TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                order_id TEXT PRIMARY KEY, address TEXT NOT NULL, network TEXT NOT NULL, 
+                expected_amount TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );`).run();
             await env.kv.put("admin_username", "admin");
             await env.kv.put("admin_password", "123456");
@@ -172,13 +172,11 @@ export default {
                 const data = await request.json();
                 if (data.username) await env.kv.put("admin_username", data.username);
                 if (data.password) await env.kv.put("admin_password", data.password);
-                if (data.api_secret) await env.kv.put("api_secret", data.api_secret);
                 return new Response(JSON.stringify({ success: true }));
             }
             return new Response(JSON.stringify({
                 username: await env.kv.get("admin_username"), 
                 password: await env.kv.get("admin_password"),
-                api_secret: await env.kv.get("api_secret") || ""
             }), { headers: { "Content-Type": "application/json" } });
         }
 
@@ -242,20 +240,24 @@ export default {
         // 【重构新增】接收业务端 (xyfk) 发送的按需监控指令 API
         if (url.pathname === "/api/watch" && request.method === "POST") {
             const authHeader = request.headers.get("Authorization");
-            const savedSecret = await env.kv.get("api_secret");
+            // 提取传入的密钥
+            const token = authHeader ? authHeader.replace('Bearer ', '').trim() : '';
             
-            // 鉴权拦截：检查通信密钥是否一致
-            if (savedSecret && authHeader !== `Bearer ${savedSecret}`) {
-                return new Response(JSON.stringify({ success: false, msg: "Unauthorized" }), { status: 401 });
+            // 【核心优化】：去 webhooks 表中动态比对
+            // 只要传入的密钥与任意一个已启用的 webhook 的 secret 匹配，即视为合法的下级业务端
+            const validWebhook = await env.db.prepare("SELECT id FROM webhooks WHERE secret = ? AND enabled = 1").bind(token).first();
+            
+            if (!validWebhook) {
+                return new Response(JSON.stringify({ success: false, msg: "Unauthorized: Invalid Webhook Secret" }), { status: 401 });
             }
 
             const { address, network, amount, order_id } = await request.json();
             if (!address || !network || !amount || !order_id) return new Response("Missing params", { status: 400 });
 
-            // 将发卡网传入的地址加入活跃监控队列 (如果该地址在队列中，则更新预期金额与时间)
+            // 【修正】使用 order_id 防冲突，仅刷新存活时间，不再覆盖同地址的其他订单
             await env.db.prepare(
-                "INSERT INTO active_watches (address, network, expected_amount, order_id) VALUES (?, ?, ?, ?) ON CONFLICT(address) DO UPDATE SET expected_amount = excluded.expected_amount, order_id = excluded.order_id, created_at = CURRENT_TIMESTAMP"
-            ).bind(address, network, amount, order_id).run();
+                "INSERT INTO active_watches (order_id, address, network, expected_amount) VALUES (?, ?, ?, ?) ON CONFLICT(order_id) DO UPDATE SET created_at = CURRENT_TIMESTAMP"
+            ).bind(order_id, address, network, amount).run();
             
             return new Response(JSON.stringify({ success: true }));
         }
@@ -427,8 +429,8 @@ export default {
 
         // 只有首次插入成功 (说明是新订单)，才触发回调
         if (dbRes.meta.changes > 0 && webhooks.length > 0) {
-            // 【重构闭环】支付已到账入库，立即将该地址踢出监控队列，停止对该地址的扫块轮询
-            await env.db.prepare("DELETE FROM active_watches WHERE address = ?").bind(tx.toAddr).run();
+            // 【修正】通过“地址+金额”精确删除对应的监控任务，保留同地址下的其他并发任务
+            await env.db.prepare("DELETE FROM active_watches WHERE address = ? AND expected_amount = ?").bind(tx.toAddr, tx.amount).run();
             for (const wh of webhooks) {
                 if (!wh.enabled || !wh.url || !wh.secret) continue;
                 const bindsRaw = wh.binds.split(',').map(s => s.trim().toLowerCase());
