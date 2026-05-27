@@ -476,28 +476,14 @@
 	
 </div>
                     <ul style="font-size: 0.85rem; color: #4b5563; line-height: 1.8; padding-left: 20px; margin-bottom:0;">
-                        <li><strong>序数ID：</strong>系统 D1 数据库主键自动递增生成的唯一地址序列号，无法篡改。</li>
-                        <li><strong>网络节点：</strong>显示该地址的扫描路由状态。若显示蓝色的 <code style="color:#0ea5e9; background:#e0f2fe;">全网并发</code>，代表系统会同时巡检该架构下的所有网络；若显示具体的网络标识（如 BSC），代表系统已将其精确定位至该单链，不再浪费其他链的 RPC 请求资源。</li>
-                        <li><strong>图标/图片：</strong>该地址的视觉徽标链接，方便在多钱包、多网络环境下直观辨别区分。</li>
-                        <li><strong>网络/名称：</strong>自定义的钱包标识名。如“波场发卡主钱包”、“业务B分流号”。</li>
-                        <li><strong>钱包地址与精准路由（核心）：</strong>用于接收 USDT 的实际链上地址。系统内置强大的<strong>多模态动态过滤器</strong>，支持以下两种极速捕获机制：
-                            <ul style="margin-top: 5px; margin-bottom: 5px; list-style-type: circle; color: #1f2937;">
-                                <li><strong>精准单链指定 (推荐)：</strong>如果在添加地址时指定了扫描网络（如选 BSC），系统将启动精准拦截，仅使用您在【网络节点】中配置的对应 RPC 巡检该地址，完美抗限流。</li>
-                                <li><strong>智能自动识别 (全网并发)：</strong>若保持默认的自动识别，系统将读取您在【网络节点】中创建的所有激活网络，并根据地址格式进行动态派发：
-                                    <ul style="list-style-type: square; padding-left: 20px; margin-top: 3px; color: #4b5563;">
-                                        <li>输入以 <code>T</code> 开头的地址：系统自动挂载所有自定义的 <strong>波场 (tron)</strong> 架构网络。</li>
-                                        <li>输入以 <code>0x</code> 开头且长度为 42 的地址：系统自动并发挂载所有自定义的 <strong>以太坊兼容 (evm)</strong> 架构网络（如 ETH、BSC、Polygon、X Layer 等）。只要任意一条链有钱进入，均能秒级捕获。</li>
-                                        <li>输入以 <code>0x</code> 开头且长度为 66 的地址：系统自动挂载 <strong>Aptos (aptos)</strong> 架构网络。</li>
-                                        <li>输入以 <code>UQ</code> 或 <code>EQ</code> 开头的地址：系统自动挂载 <strong>TON (ton)</strong> 架构网络。</li>
-                                        <li>输入常规 Base58 格式地址：系统自动挂载 <strong>Solana (solana)</strong> 架构网络。</li>
-                                    </ul>
-                                </li>
-                            </ul>
-                        </li>
-						<li><strong>钱包地址与 JIT 精准路由（核心架构）：</strong>用于接收资产的实际链上地址。得益于系统升级的 <strong>JIT (按需唤醒)</strong> 架构，此处的地址列表主要作为“可视化资产白名单”供您管理。实际的扫块路由已 <strong>100% 由发卡网下发指令时动态接管</strong>（发卡网会精准指明：网络+地址+订单）。这意味着系统天然实现了绝对精确的单链拦截，实现了真正意义上的 0 并发资源浪费。</li>
-                        <li><strong>添加日期：</strong>录入系统的初始化时刻，自动转换为 Asia/Shanghai 标准时区。</li>
-                        <li><strong>备注：</strong>面向管理员的附加文本区，可记录该地址的归集周期、所属业务线或负责人等。</li>
-                    </ul>
+                            <li><strong>序数ID：</strong>系统 D1 数据库主键自动递增生成的唯一地址序列号，无法篡改。</li>
+                            <li><strong>网络节点：</strong>显示该地址的扫描路由状态。若显示蓝色的 <code style="color:#0ea5e9; background:#e0f2fe;">全网并发</code>，代表系统会同时巡检该架构下的所有网络；若显示具体的网络标识（如 BSC），代表系统已将其精确定位至该单链，不再浪费其他链的 RPC 请求资源。</li>
+                            <li><strong>图标/图片：</strong>该地址的视觉徽标链接，方便在多钱包、多网络环境下直观辨别区分。</li>
+                            <li><strong>网络/名称：</strong>自定义的钱包标识名。如“波场发卡主钱包”、“业务B分流号”。</li>
+                            <li><strong>钱包地址与 JIT 精准路由（核心架构）：</strong>用于接收资产的实际链上地址。得益于系统升级的 <strong>JIT (按需唤醒)</strong> 架构，此处的地址列表主要作为“可视化资产白名单”供您管理。实际的扫块路由已 <strong>100% 由发卡网下发指令时动态接管</strong>（发卡网会精准指明：网络+地址+订单）。这意味着系统天然实现了绝对精确的单链拦截，实现了真正意义上的 0 并发资源浪费。</li>
+                            <li><strong>添加日期：</strong>录入系统的初始化时刻，自动转换为 Asia/Shanghai 标准时区。</li>
+                            <li><strong>备注：</strong>面向管理员的附加文本区，可记录该地址的归集周期、所属业务线或负责人等。</li>
+                        </ul>
                 </div>
             </div>
 			</div>
