@@ -293,11 +293,14 @@ export default {
                 const syncTasks = [];
                 
                 // 按网络将活跃地址分类，极速定位
-                const activeTasks = {};
+               const activeTasks = {};
                 for (const row of results) {
                     const net = row.network.toUpperCase();
                     if (!activeTasks[net]) activeTasks[net] = [];
-                    activeTasks[net].push(row.address);
+                    // 【修正】增加地址去重逻辑。因为现在支持单地址多订单并发，不去重会导致瞬间重复发送多个相同 RPC 扫块请求
+                    if (!activeTasks[net].includes(row.address)) {
+                        activeTasks[net].push(row.address);
+                    }
                 }
     
                 // 仅对当前有订单产生的那条链进行精确扫块
@@ -311,7 +314,6 @@ export default {
                     else if (netConfig.type === 'solana') syncTasks.push(this.syncSolanaNetwork(env, targetAddresses, webhooks));
                     else if (netConfig.type === 'ton') syncTasks.push(this.syncTonNetwork(env, targetAddresses, webhooks));
                 }
-            }
             // 并发执行所有链的扫块
             await Promise.allSettled(syncTasks);
 
@@ -422,14 +424,11 @@ export default {
 
     // --- 数据入库与 Webhook 分发 ---
     async saveAndNotify(env, tx, webhooks) {
-        // 尝试入库，利用 UNIQUE 主键防止重复分发
-        const dbRes = await env.db.prepare(
-            "INSERT OR IGNORE INTO orders (tx_hash, network, amount, from_address, to_address) VALUES (?, ?, ?, ?, ?)"
-        ).bind(tx.txHash, tx.network, tx.amount, tx.fromAddr, tx.toAddr).run();
+        const dbRes = await env.db.prepare("INSERT OR IGNORE INTO orders (tx_hash, network, amount, from_address, to_address) VALUES (?, ?, ?, ?, ?)")
+            .bind(tx.txHash, tx.network, tx.amount, tx.fromAddr, tx.toAddr).run();
 
-        // 只有首次插入成功 (说明是新订单)，才触发回调
         if (dbRes.meta.changes > 0 && webhooks.length > 0) {
-            // 【修正】通过“地址+金额”精确删除对应的监控任务，保留同地址下的其他并发任务
+            // 清理任务：通过 order_id 或 address+amount
             await env.db.prepare("DELETE FROM active_watches WHERE address = ? AND expected_amount = ?").bind(tx.toAddr, tx.amount).run();
             for (const wh of webhooks) {
                 if (!wh.enabled || !wh.url || !wh.secret) continue;
