@@ -263,8 +263,11 @@
                             <li><strong>图标：</strong>节点的视觉徽标链接（如各发卡站的 Favicon），用于在多商户流转时直观区分不同的接货终端。</li>
                             <li><strong>名称：</strong>自定义的下游商户或系统代号。如“发卡A站”、“大客户B端”，方便多商户环境下的分类辨识。</li>
                             <li><strong>CALLBACK_URL：</strong>外部接收充值入账通知的网关 API 接口。当您在【网络节点】中配置的任意一条激活区块链上扫出新订单时，本矩阵系统都会向此地址发起异步 <code>POST</code> 核心请求，数据包中会动态携带 <code>network</code> 字段。</li>
-                            <li><strong>APP_SECRET (核心变更)：</strong>通讯层安全验签密钥。**【极重要】**由于系统已升级为全动态矩阵架构，为了彻底阻断黑客利用“同一笔交易哈希在不同重放链”进行双花攻击，系统在哈希算法中引入了网络隔离。当前的签名拼接规则为：<code>网络标识 + 交易哈希 + 到账金额 + APP_SECRET</code>。下游接收端必须使用 SHA256 严格按此顺序组装验签！</li>
-                            <li><strong>绑定靓号池：</strong>路由过滤器。可限定该回调通道仅接收指定收款地址的通知（支持英文逗号分隔多地址）；若填写 <code>*</code> 则默认不作过滤，放行全网所有收款地址的所有多链流水。</li>
+                            <li><strong>APP_SECRET (核心双向鉴权)：</strong>多租户系统级通讯密钥。**【极重要】**本密钥具有双重安全身份：<br>
+                                1. <strong>被动接收授权：</strong>发卡网向本系统发送 <code>/api/watch</code> 监控唤醒指令时，必须在 HTTP Header 中携带此密钥作为 <code>Bearer Token</code>。系统将自动比对所有已启用路由的 Secret，匹配成功即放行。<br>
+                                2. <strong>主动防伪签名：</strong>本系统向发卡网推送成功回调时，会使用此密钥进行防篡改 SHA256 签名计算（规则：<code>网络标识 + 交易哈希 + 金额 + APP_SECRET</code>）。请务必与下游系统保持完全一致！
+                            </li>
+							<li><strong>绑定靓号池：</strong>路由过滤器。可限定该回调通道仅接收指定收款地址的通知（支持英文逗号分隔多地址）；若填写 <code>*</code> 则默认不作过滤，放行全网所有收款地址的所有多链流水。</li>
                             <li><strong>添加日期：</strong>该通道规则进入系统的初始化时刻，系统已自动锁定并转换为 Asia/Shanghai 标准北京时间。</li>
                             <li><strong>备注：</strong>面向管理员的补充注释区，可备注对接负责人、结算账期或商户费率等附加说明。</li>
                         </ul>
@@ -491,6 +494,7 @@
                                 </li>
                             </ul>
                         </li>
+						<li><strong>钱包地址与 JIT 精准路由（核心架构）：</strong>用于接收资产的实际链上地址。得益于系统升级的 <strong>JIT (按需唤醒)</strong> 架构，此处的地址列表主要作为“可视化资产白名单”供您管理。实际的扫块路由已 <strong>100% 由发卡网下发指令时动态接管</strong>（发卡网会精准指明：网络+地址+订单）。这意味着系统天然实现了绝对精确的单链拦截，实现了真正意义上的 0 并发资源浪费。</li>
                         <li><strong>添加日期：</strong>录入系统的初始化时刻，自动转换为 Asia/Shanghai 标准时区。</li>
                         <li><strong>备注：</strong>面向管理员的附加文本区，可记录该地址的归集周期、所属业务线或负责人等。</li>
                     </ul>
@@ -525,6 +529,9 @@
                     </div>
 					<div style="margin-top: 30px; padding: 20px; background: #f8fafc; border-radius: 8px; border-left: 4px solid var(--primary);">
                         <h4 style="margin-top:0; color:var(--text-main); font-size:1rem;">💡 网络节点参数配置参考说明：</h4>
+						<p style="font-size: 0.85rem; color: #0284c7; font-weight: 500; margin-bottom: 10px;">
+                            📌 提示：网络节点构成了本系统的“底层扫块引擎库”。平时它们处于休眠状态；只有当发卡网下发监控指令指定了某条网络（如 BSC）时，对应的 RPC 引擎才会被瞬间唤醒执行拦截。
+                        </p>
                         <ul style="font-size: 0.85rem; color: #4b5563; line-height: 1.8; padding-left: 20px; margin-bottom:15px;">
                             <li><strong>网络标识：</strong>作为系统的唯一主键（建议全大写，如 ETH、TRON）。</li>
                             <li><strong>底层内核：</strong>用于决定挂载哪种底层扫块引擎。目前支持 <code>evm</code>、<code>tron</code>、<code>aptos</code>、<code>solana</code>、<code>ton</code>。</li>
@@ -611,9 +618,19 @@
                             监控任务默认由全局 <code>scheduled</code> 定时器接管。系统在代码中配置了每分钟自动重置最新块高并向前追溯 50 个区块的防漏防错逻辑。若部署后发现无法自动巡检，请确保您在 Cloudflare 控制台的 <code>Workers -> 设置 -> 触发器 -> 自动化</code> 中正确挂载了 Cron 表达式：<code>* * * * *</code>。
                         </p>
                     </div>
+					<div class="doc-section">
+                        <h4>3. Serverless 按需唤醒机制 (0 RPC 浪费架构)</h4>
+                        <p style="color: #4b5563; font-size: 0.95rem; line-height: 1.6; margin-bottom: 10px;">
+                            为了防止全局盲扫导致区块链 RPC 节点封禁您的 IP，本系统采用了最高级的<strong>“按需监控 (JIT)”</strong>架构。平时处于 0 消耗休眠状态。
+                        </p>
+                        <ul style="font-size: 0.85rem; color: #4b5563; line-height: 1.8; padding-left: 20px; margin-bottom:0;">
+                            <li><strong>唤醒指令：</strong>客户在下游系统（如发卡网）点击下单的瞬间，发卡网需向本系统发送 <code>POST /api/watch</code> 请求，将订单地址和金额推入活跃监控池。</li>
+                            <li><strong>自动清理：</strong>系统精准扫到对应金额入账后，会立即将其踢出监控池并触发下发货回调；若客户超过 30 分钟未支付，系统也会自动执行垃圾回收（GC），彻底切断对该地址的无意义轮询。</li>
+                        </ul>
+                    </div>
 
                     <div class="doc-section">
-                        <h4>3. 下游接货网关防双花安全验签 (PHP 示例)</h4>
+                        <h4>4. 下游接货网关防双花安全验签 (PHP 示例)</h4>
                         <p style="color: #4b5563; font-size: 0.95rem; line-height: 1.6; margin-bottom: 10px;">
                             由于系统支持多链混扫，**必须杜绝攻击者使用某一条链上的历史交易哈希去欺骗其他链网关的行为**。因此系统向您的 <code>CALLBACK_URL</code> 发送 POST 数据包时，加密签名的拼接顺序已升级为：<code>网络标识 + 交易哈希 + 金额 + APP_SECRET</code>。
                         </p>
@@ -655,7 +672,7 @@ echo json_encode(["code" => 200, "msg" => "SUCCESS"]);
                     </div>
 
                     <div class="doc-section" style="margin-bottom: 0;">
-                        <h4>4. 🪐 完整对接流转与报文数据示例</h4>
+                        <h4>5. 🪐 完整对接流转与报文数据示例</h4>
                         <p style="color: #4b5563; font-size: 0.95rem; line-height: 1.6; margin-bottom: 10px;">
                             为了方便调试，以下展示一个真实的资产充值触发事件全流程演练。
                         </p>
