@@ -3,6 +3,8 @@ import dashboardHTML from "./public/admin.html";
 // 【新增】KV与内存双重缓存架构逻辑
 let cachedNetworks = null;
 let lastNetworkCacheTime = 0;
+let cachedScanConfig = null;
+let lastScanConfigCacheTime = 0;
 
 async function getDynamicNetworks(env) {
     const now = Date.now();
@@ -16,6 +18,25 @@ async function getDynamicNetworks(env) {
         lastNetworkCacheTime = now;
     }
     return cachedNetworks;
+}
+
+// 【新增】扫块配置内存缓存，减少 KV 读取
+async function getScanConfig(env) {
+    const now = Date.now();
+    if (!cachedScanConfig || (now - lastScanConfigCacheTime > 30000)) { // 30秒缓存
+        const [duration, interval, mode] = await Promise.all([
+            env.kv.get("scan_duration"),
+            env.kv.get("scan_interval"),
+            env.kv.get("scan_mode")
+        ]);
+        cachedScanConfig = {
+            duration: duration || "5",
+            interval: interval || "30",
+            mode: mode || "fixed"
+        };
+        lastScanConfigCacheTime = now;
+    }
+    return cachedScanConfig;
 }
 // EVM ERC20 Transfer 事件的 Keccak-256 签名
 const EVM_TRANSFER_SIG = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -260,14 +281,12 @@ export default {
             ).bind(order_id, address, network, amount).run();
             
             // ====== 【核心新增：即时按需扫块】登记后立即触发后台持续扫块 ======
-            // 优先使用请求传入的参数，否则使用系统全局配置，最后用默认值
-            const sysDuration = await env.kv.get("scan_duration") || "5";
-            const sysInterval = await env.kv.get("scan_interval") || "30";
-            const sysMode = await env.kv.get("scan_mode") || "fixed";
+            // 优先使用请求传入的参数，否则使用系统全局配置（带内存缓存），最后用默认值
+            const sysConfig = await getScanConfig(env);
             
-            const duration = parseInt(scan_duration) || parseInt(sysDuration) || 5;  // 扫块持续分钟数
-            const interval = parseInt(scan_interval) || parseInt(sysInterval) || 30; // 扫块间隔秒数
-            const mode = scan_mode || sysMode || "fixed"; // fixed 或 random
+            const duration = parseInt(scan_duration) || parseInt(sysConfig.duration) || 5;
+            const interval = parseInt(scan_interval) || parseInt(sysConfig.interval) || 30;
+            const mode = scan_mode || sysConfig.mode || "fixed";
             
             // 使用 ctx.waitUntil 在后台持续扫块，不阻塞响应
             ctx.waitUntil(this.onDemandScan(env, duration, interval, mode));
@@ -282,17 +301,15 @@ export default {
         // 【新增】按需扫块配置查询与保存 API
         if (url.pathname === "/api/scan-config") {
             if (request.method === "GET") {
-                return new Response(JSON.stringify({
-                    duration: await env.kv.get("scan_duration") || "5",
-                    interval: await env.kv.get("scan_interval") || "30",
-                    mode: await env.kv.get("scan_mode") || "fixed"
-                }), { headers: { "Content-Type": "application/json" } });
+                const config = await getScanConfig(env);
+                return new Response(JSON.stringify(config), { headers: { "Content-Type": "application/json" } });
             }
             if (request.method === "POST") {
                 const data = await request.json();
                 if (data.duration) await env.kv.put("scan_duration", String(data.duration));
                 if (data.interval) await env.kv.put("scan_interval", String(data.interval));
                 if (data.mode) await env.kv.put("scan_mode", data.mode);
+                cachedScanConfig = null; // 清除缓存，下次读取时刷新
                 return new Response(JSON.stringify({ success: true }));
             }
         }
