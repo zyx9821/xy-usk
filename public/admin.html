@@ -576,6 +576,47 @@
                     <div class="form-group"><label>面板密码:</label><input type="password" id="set_password"></div>
                     <button class="btn" onclick="saveSettings()">保存基础配置</button>
                 </div>
+
+                <div class="card">
+                    <div class="card-header"><h3>⚡ 即时扫块引擎配置</h3></div>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">
+                        当发卡网调用 <code>/api/watch</code> 登记订单后，系统会立即启动后台扫块。此处配置扫块的持续时长和扫描频率。
+                    </p>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 15px;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>扫块持续时长 (分钟)</label>
+                                <input type="number" id="scan_duration" min="1" max="30" value="5" style="width: 100%;">
+                                <div class="form-hint">订单登记后持续扫块的时长，超时自动停止。建议 3~10 分钟。</div>
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 200px;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>扫块间隔 (秒)</label>
+                                <input type="number" id="scan_interval" min="5" max="300" value="30" style="width: 100%;">
+                                <div class="form-hint">每次扫块之间的等待时间。建议 15~60 秒，太频繁可能被 RPC 限流。</div>
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 200px;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>扫块间隔模式</label>
+                                <select id="scan_mode" style="width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #f8fafc;">
+                                    <option value="fixed">固定间隔 (精确)</option>
+                                    <option value="random">随机间隔 (防风控)</option>
+                                </select>
+                                <div class="form-hint">固定=精确间隔；随机=在间隔值的50%~150%之间波动，可降低被RPC节点限流的风险。</div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-success" onclick="saveScanConfig()">💾 保存扫块配置</button>
+                    <div style="margin-top: 15px; padding: 12px; background: #f0fdf4; border-radius: 8px; border-left: 4px solid #10b981; font-size: 0.85rem; color: #166534;">
+                        <strong>💡 工作机制说明：</strong><br>
+                        • <strong>即时触发：</strong>发卡网调用 <code>/api/watch</code> 后，系统立即启动后台扫块循环，无需等待定时器。<br>
+                        • <strong>智能退出：</strong>如果所有订单都已支付（active_watches 为空），扫块循环会立即提前结束，不浪费资源。<br>
+                        • <strong>备用保底：</strong>Cloudflare Cron 定时器（每分钟）仍然保留作为安全兜底，正常情况下不会触发实际扫块。<br>
+                        • <strong>随机模式：</strong>选择"随机间隔"可以在每次扫块时随机调整等待时间，有效降低被公共 RPC 节点限流的概率。
+                    </div>
+                </div>
             </div>
 			<div id="docs" class="tab-content">
 
@@ -750,6 +791,7 @@ echo json_encode(["code" => 200, "msg" => "SUCCESS"]);
             // 拉取 D1 数据库中的收款地址
             await renderNetworksGrid();
             loadAddresses();
+            loadScanConfig(); // 【新增】加载扫块配置
 
             const res = await fetch('/api/orders');
             const data = await res.json();
@@ -1011,6 +1053,28 @@ echo json_encode(["code" => 200, "msg" => "SUCCESS"]);
             };
             await fetch('/api/settings', { method: 'POST', body: JSON.stringify(data) });
             alert('✅ 基础配置保存成功！'); location.reload();
+        }
+
+        // 【新增】加载扫块配置
+        async function loadScanConfig() {
+            try {
+                const res = await fetch('/api/scan-config');
+                const config = await res.json();
+                document.getElementById('scan_duration').value = config.duration || '5';
+                document.getElementById('scan_interval').value = config.interval || '30';
+                document.getElementById('scan_mode').value = config.mode || 'fixed';
+            } catch (e) { console.error("加载扫块配置失败", e); }
+        }
+
+        // 【新增】保存扫块配置
+        async function saveScanConfig() {
+            const data = {
+                duration: document.getElementById('scan_duration').value,
+                interval: document.getElementById('scan_interval').value,
+                mode: document.getElementById('scan_mode').value
+            };
+            await fetch('/api/scan-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            alert('✅ 扫块配置保存成功！');
         }
 		// 【新增】前端网络分类交互逻辑
         let networkCachePool = {};
