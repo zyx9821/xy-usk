@@ -239,6 +239,26 @@ export default {
                 return new Response(JSON.stringify({ success: true }));
             }
         }
+        // 【重构新增】接收业务端 (xyfk) 发送的按需监控指令 API
+        if (url.pathname === "/api/watch" && request.method === "POST") {
+            const authHeader = request.headers.get("Authorization");
+            const savedSecret = await env.kv.get("api_secret");
+            
+            // 鉴权拦截：检查通信密钥是否一致
+            if (savedSecret && authHeader !== `Bearer ${savedSecret}`) {
+                return new Response(JSON.stringify({ success: false, msg: "Unauthorized" }), { status: 401 });
+            }
+
+            const { address, network, amount, order_id } = await request.json();
+            if (!address || !network || !amount || !order_id) return new Response("Missing params", { status: 400 });
+
+            // 将发卡网传入的地址加入活跃监控队列 (如果该地址在队列中，则更新预期金额与时间)
+            await env.db.prepare(
+                "INSERT INTO active_watches (address, network, expected_amount, order_id) VALUES (?, ?, ?, ?) ON CONFLICT(address) DO UPDATE SET expected_amount = excluded.expected_amount, order_id = excluded.order_id, created_at = CURRENT_TIMESTAMP"
+            ).bind(address, network, amount, order_id).run();
+            
+            return new Response(JSON.stringify({ success: true }));
+        }
         // 手动触发全链同步
         if (url.pathname === "/api/sync" && request.method === "POST") {
             await this.syncAllChainsData(env);
@@ -259,34 +279,30 @@ export default {
     // ==========================================
     async syncAllChainsData(env) {
         try {
-            // 从 D1 数据库动态提取所有已激活的监控地址
-            const { results } = await env.db.prepare("SELECT id, address FROM addresses").all();
-            if (results.length === 0) return;
-
-            const { results: webhooks } = await env.db.prepare("SELECT * FROM webhooks WHERE enabled = 1").all();
-            const NETWORKS = await getDynamicNetworks(env);
-            const bindings = await env.kv.get("address_to_network", "json") || {};
-            const syncTasks = [];
-
-            for (const [netName, netConfig] of Object.entries(NETWORKS)) {
-                let validAddrs = [];
+                // 【重构：垃圾回收】清理超过 30 分钟未支付的失效监控任务，防止队列无限膨胀
+                await env.db.prepare("DELETE FROM active_watches WHERE created_at < datetime('now', '-30 minutes')").run();
+    
+                // 【重构：按需提取】只从 active_watches 提取当前活跃的待支付地址
+                const { results } = await env.db.prepare("SELECT address, network FROM active_watches").all();
+                if (results.length === 0) return; // 核心防御：无订单交易时，在此处直接 return 休眠，产生 0 次 RPC 网络请求！
+    
+                const { results: webhooks } = await env.db.prepare("SELECT * FROM webhooks WHERE enabled = 1").all();
+                const NETWORKS = await getDynamicNetworks(env);
+                const syncTasks = [];
+                
+                // 按网络将活跃地址分类，极速定位
+                const activeTasks = {};
                 for (const row of results) {
-                    const addr = row.address;
-                    if (!addr) continue;
-                    const boundNet = bindings[row.id.toString()];
-                    
-                    let isMatch = false;
-                    if (netConfig.type === 'tron' && addr.startsWith("T")) isMatch = (!boundNet || boundNet === netName);
-                    if (netConfig.type === 'evm' && addr.startsWith("0x") && addr.length === 42) isMatch = (!boundNet || boundNet === netName);
-                    if (netConfig.type === 'aptos' && addr.startsWith("0x") && addr.length === 66) isMatch = (!boundNet || boundNet === netName);
-                    if (netConfig.type === 'ton' && (addr.startsWith("UQ") || addr.startsWith("EQ"))) isMatch = (!boundNet || boundNet === netName);
-                    if (netConfig.type === 'solana' && !addr.startsWith("0x") && !addr.startsWith("T") && !addr.startsWith("UQ") && !addr.startsWith("EQ") && addr.length >= 32) isMatch = (!boundNet || boundNet === netName);
-                    
-                    if (isMatch) validAddrs.push(addr);
+                    const net = row.network.toUpperCase();
+                    if (!activeTasks[net]) activeTasks[net] = [];
+                    activeTasks[net].push(row.address);
                 }
-                const targetAddresses = [...new Set(validAddrs)]; // 强制去重，防止相同地址触发多次扫块请求
-
-                if (targetAddresses.length > 0) {
+    
+                // 仅对当前有订单产生的那条链进行精确扫块
+                for (const [netName, targetAddresses] of Object.entries(activeTasks)) {
+                    const netConfig = NETWORKS[netName];
+                    if (!netConfig || targetAddresses.length === 0) continue;
+                    
                     if (netConfig.type === 'tron') syncTasks.push(this.syncTronNetwork(env, netConfig, targetAddresses, webhooks));
                     else if (netConfig.type === 'evm') syncTasks.push(this.syncEVMNetwork(env, netName, netConfig, targetAddresses, webhooks));
                     else if (netConfig.type === 'aptos') syncTasks.push(this.syncAptosNetwork(env, targetAddresses, webhooks));
@@ -411,6 +427,8 @@ export default {
 
         // 只有首次插入成功 (说明是新订单)，才触发回调
         if (dbRes.meta.changes > 0 && webhooks.length > 0) {
+            // 【重构闭环】支付已到账入库，立即将该地址踢出监控队列，停止对该地址的扫块轮询
+            await env.db.prepare("DELETE FROM active_watches WHERE address = ?").bind(tx.toAddr).run();
             for (const wh of webhooks) {
                 if (!wh.enabled || !wh.url || !wh.secret) continue;
                 const bindsRaw = wh.binds.split(',').map(s => s.trim().toLowerCase());
