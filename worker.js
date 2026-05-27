@@ -21,7 +21,7 @@ async function getDynamicNetworks(env) {
 const EVM_TRANSFER_SIG = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 export default {
-    async fetch(request, env) {
+    async fetch(request, env, ctx) {
         const url = new URL(request.url);
 
         // ==========================================
@@ -251,7 +251,7 @@ export default {
                 return new Response(JSON.stringify({ success: false, msg: "Unauthorized: Invalid Webhook Secret" }), { status: 401 });
             }
 
-            const { address, network, amount, order_id } = await request.json();
+            const { address, network, amount, order_id, scan_duration, scan_interval, scan_mode } = await request.json();
             if (!address || !network || !amount || !order_id) return new Response("Missing params", { status: 400 });
 
             // 【修正】使用 order_id 防冲突，仅刷新存活时间，不再覆盖同地址的其他订单
@@ -259,7 +259,42 @@ export default {
                 "INSERT INTO active_watches (order_id, address, network, expected_amount) VALUES (?, ?, ?, ?) ON CONFLICT(order_id) DO UPDATE SET created_at = CURRENT_TIMESTAMP"
             ).bind(order_id, address, network, amount).run();
             
-            return new Response(JSON.stringify({ success: true }));
+            // ====== 【核心新增：即时按需扫块】登记后立即触发后台持续扫块 ======
+            // 优先使用请求传入的参数，否则使用系统全局配置，最后用默认值
+            const sysDuration = await env.kv.get("scan_duration") || "5";
+            const sysInterval = await env.kv.get("scan_interval") || "30";
+            const sysMode = await env.kv.get("scan_mode") || "fixed";
+            
+            const duration = parseInt(scan_duration) || parseInt(sysDuration) || 5;  // 扫块持续分钟数
+            const interval = parseInt(scan_interval) || parseInt(sysInterval) || 30; // 扫块间隔秒数
+            const mode = scan_mode || sysMode || "fixed"; // fixed 或 random
+            
+            // 使用 ctx.waitUntil 在后台持续扫块，不阻塞响应
+            ctx.waitUntil(this.onDemandScan(env, duration, interval, mode));
+            
+            return new Response(JSON.stringify({ 
+                success: true, 
+                scan_started: true,
+                scan_config: { duration_min: duration, interval_sec: interval, mode: mode }
+            }));
+        }
+        
+        // 【新增】按需扫块配置查询与保存 API
+        if (url.pathname === "/api/scan-config") {
+            if (request.method === "GET") {
+                return new Response(JSON.stringify({
+                    duration: await env.kv.get("scan_duration") || "5",
+                    interval: await env.kv.get("scan_interval") || "30",
+                    mode: await env.kv.get("scan_mode") || "fixed"
+                }), { headers: { "Content-Type": "application/json" } });
+            }
+            if (request.method === "POST") {
+                const data = await request.json();
+                if (data.duration) await env.kv.put("scan_duration", String(data.duration));
+                if (data.interval) await env.kv.put("scan_interval", String(data.interval));
+                if (data.mode) await env.kv.put("scan_mode", data.mode);
+                return new Response(JSON.stringify({ success: true }));
+            }
         }
         // 手动触发全链同步
         if (url.pathname === "/api/sync" && request.method === "POST") {
@@ -271,9 +306,59 @@ export default {
         return env.assets.fetch(request);
     },
 
-    // 定时器入口
+    // 定时器入口 (备用保底，正常情况下由 /api/watch 即时触发)
     async scheduled(event, env, ctx) {
         ctx.waitUntil(this.syncAllChainsData(env));
+    },
+
+    // ==========================================
+    // 【核心新增】即时按需扫块引擎
+    // ==========================================
+    // 登记后立即在后台持续扫块，不依赖定时器
+    // duration: 持续扫块分钟数, interval: 扫块间隔秒数, mode: fixed(固定间隔) / random(随机间隔)
+    async onDemandScan(env, duration, interval, mode) {
+        const startTime = Date.now();
+        const endTime = startTime + duration * 60 * 1000;
+        let scanCount = 0;
+        
+        console.log(`[按需扫块] 启动: 持续${duration}分钟, 间隔${interval}秒, 模式=${mode}`);
+        
+        while (Date.now() < endTime) {
+            // 每次扫块前检查是否还有活跃订单，没有则提前结束
+            const { results: activeWatches } = await env.db.prepare("SELECT order_id FROM active_watches").all();
+            if (activeWatches.length === 0) {
+                console.log(`[按需扫块] 无活跃订单，提前结束。共扫块${scanCount}次`);
+                return;
+            }
+            
+            // 执行一次全链扫块
+            try {
+                await this.syncAllChainsData(env);
+                scanCount++;
+            } catch (e) {
+                console.error(`[按需扫块] 第${scanCount + 1}次扫块异常:`, e);
+            }
+            
+            // 如果已经到了结束时间，退出
+            if (Date.now() >= endTime) break;
+            
+            // 计算等待时间
+            let waitMs;
+            if (mode === 'random') {
+                // 随机模式：在 interval 的 50%~150% 之间随机
+                const minMs = Math.max(5000, interval * 500);   // 最少5秒
+                const maxMs = interval * 1500;                    // 最多1.5倍
+                waitMs = Math.floor(Math.random() * (maxMs - minMs) + minMs);
+            } else {
+                // 固定模式
+                waitMs = interval * 1000;
+            }
+            
+            // 等待指定间隔
+            await new Promise(resolve => setTimeout(resolve, waitMs));
+        }
+        
+        console.log(`[按需扫块] 结束: 持续${duration}分钟, 共扫块${scanCount}次`);
     },
 
     // ==========================================
