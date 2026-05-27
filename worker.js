@@ -50,6 +50,11 @@ export default {
             await env.db.prepare(`CREATE TABLE IF NOT EXISTS sys_state (
                 key_name TEXT PRIMARY KEY, key_value TEXT
             );`).run();
+            // 【重构新增】自动创建 active_watches 表 (用于存储当前活跃的按需监控订单)
+            await env.db.prepare(`CREATE TABLE IF NOT EXISTS active_watches (
+                address TEXT PRIMARY KEY, network TEXT NOT NULL, expected_amount TEXT NOT NULL,
+                order_id TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );`).run();
             await env.kv.put("admin_username", "admin");
             await env.kv.put("admin_password", "123456");
             await env.kv.put("system_init_v1", "true");
@@ -167,11 +172,13 @@ export default {
                 const data = await request.json();
                 if (data.username) await env.kv.put("admin_username", data.username);
                 if (data.password) await env.kv.put("admin_password", data.password);
+                if (data.api_secret) await env.kv.put("api_secret", data.api_secret);
                 return new Response(JSON.stringify({ success: true }));
             }
             return new Response(JSON.stringify({
                 username: await env.kv.get("admin_username"), 
-                password: await env.kv.get("admin_password")
+                password: await env.kv.get("admin_password"),
+                api_secret: await env.kv.get("api_secret") || ""
             }), { headers: { "Content-Type": "application/json" } });
         }
 
